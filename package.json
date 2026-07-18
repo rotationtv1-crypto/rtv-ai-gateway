@@ -1,0 +1,19 @@
+{
+  "name": "rtv-ai-gateway",
+  "private": true,
+  "version": "6.2.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:security": "vitest run tests/security.test.ts",
+    "verify": "bash scripts/verify-rotation-erotica.sh",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250617.0",
+    "typescript": "^5.8.0",
+    "vitest": "^2.1.0",
+    "wrangler": "^4.20.0"
+  }
+}
