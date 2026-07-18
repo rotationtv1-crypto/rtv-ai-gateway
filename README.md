@@ -52,3 +52,29 @@ Telegram User → Bot → /telegram/webhook → AI Router → Venice (primary)
                                                     ↓
                                               Supabase (logs + streams)
 ```
+
+
+---
+
+## 🚀 Full Scale Deployment (2026-07-18 23:23)
+
+This repository is part of the RotationTV Network Full Scale Deployment.
+
+### Deploy to Cloudflare Workers:
+```bash
+npm install
+npx wrangler deploy
+```
+
+### Environment Secrets Required:
+```bash
+npx wrangler secret put SUPABASE_URL
+npx wrangler secret put SUPABASE_ANON_KEY
+npx wrangler secret put SUPABASE_SERVICE_KEY
+npx wrangler secret put GEMINI_API_KEY
+npx wrangler secret put CLAUDE_API_KEY
+npx wrangler secret put VENICE_API_KEY
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+```
+
+### Status: 🟢 PRODUCTION
