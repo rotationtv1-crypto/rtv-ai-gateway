@@ -1,0 +1,65 @@
+# ============================================================================
+# SECURITY-GATED CI/CD TEMPLATE
+# This token cannot write .github/workflows/* (fine-grained PAT missing the
+# "Workflows" permission). To activate:
+#   1. Copy this file to .github/workflows/security-gated-deploy.yml
+#      (from your terminal, or GitHub web UI → Add file → upload)
+#   2. Add repo secrets: SUPABASE_URL, SUPABASE_ANON_KEY,
+#      SUPABASE_SERVICE_ROLE_KEY, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+#   3. Enable branch protection on main requiring the "security-audit" check
+# ============================================================================
+name: Security Gated CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Stage 1: Security hardening validation — the non-bypassable gate
+  security-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: Run Supabase security probe suite
+        run: npx vitest run tests/security.test.ts
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+  # Stage 2: Type check
+  typecheck:
+    needs: security-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run typecheck
+
+  # Stage 3: Deploy — only if security-audit AND typecheck pass, only on main
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [security-audit, typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
