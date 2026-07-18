@@ -181,18 +181,26 @@ export default {
         let reply;
 
         if (text === "/start") {
-          reply = "🎬 Welcome to RotationTV!\n\nI'm your AI-powered streaming assistant.\n\n/stream — Start a live stream\n/ai — Ask me anything\n/wallet — Check RTVS balance\n/status — System status";
+          reply = "🎬 Welcome to RotationTV!\n\nI'm your AI-powered streaming assistant.\n\n/ask — Ask AI (Venice)\n/ai — Ask AI (Gemini)\n/stream — Start a live stream\n/wallet — Check RTVS balance\n/status — System status";
         } else if (text === "/status") {
-          reply = `✅ RotationTV Status\n\n🤖 AI Gateway: Online\n📡 Streaming: Ready\n💰 Payments: Active\n⛓️ TON: Block ${Date.now()}\n\nAll systems operational.`;
+          reply = `✅ RotationTV Status\n\n🤖 AI Gateway: Online (v2.1.0)\n📡 Streaming: Ready\n💰 Payments: Active\n⛓️ TON: Connected\n\nAll systems operational.`;
+        } else if (text.startsWith("/ask ")) {
+          const query = text.slice(5);
+          reply = await callVenice(query, "You are RotationTV's AI assistant powered by Venice. Be helpful, concise, and on-brand.", env);
         } else if (text.startsWith("/ai ")) {
           const query = text.slice(4);
           reply = await callGemini(query, "You are RotationTV's AI assistant. Be helpful, concise, and on-brand.", env);
         } else if (text === "/stream") {
-          reply = "🔴 To start streaming:\n\n1. Tap 'Go Live' in the Mini App\n2. Allow camera + mic\n3. You're live!\n\nOr use RTMP:\nServer: rtmp://live.rotationtv.com/live\nKey: Use /streamkey to generate";
+          reply = "🔴 To start streaming:\n\n1. Tap 'Go Live' in the Mini App\n2. Allow camera + mic\n3. You're live!";
         } else if (text === "/wallet") {
-          reply = "💎 RTVS Wallet\n\nBalance: 0 RTVS\nStaked: 0 RTVS\n\nContract: EQB2wn8LVs...\n\nUse /deposit to add funds.";
+          reply = "💎 RTVS Wallet\n\nBalance: 0 RTVS\nStaked: 0 RTVS\n\nUse /deposit to add funds.";
         } else {
-          reply = await callGemini(text, "You are RotationTV's friendly AI assistant. Keep responses under 200 words.", env);
+          // Default: try Venice first, fallback to Gemini
+          if (env.VENICE_API_KEY) {
+            reply = await callVenice(text, "You are RotationTV's friendly AI assistant. Keep responses under 200 words.", env);
+          } else {
+            reply = await callGemini(text, "You are RotationTV's friendly AI assistant. Keep responses under 200 words.", env);
+          }
         }
 
         // Send reply via Telegram API
@@ -236,12 +244,13 @@ async function callGemini(message, context, env) {
   if (!env.GEMINI_API_KEY) return "[Gemini not configured]";
   const systemPrompt = context || "You are RotationTV's AI assistant. Be concise and helpful.";
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${env.GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_API_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: `${systemPrompt}\n\nUser: ${message}` }] }],
+        contents: [{ parts: [{ text: message }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
         generationConfig: { maxOutputTokens: 1024, temperature: 0.7 }
       })
     }
@@ -281,7 +290,7 @@ async function callVenice(message, context, env) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "venice-uncensored",
+      model: "venice-uncensored-1-2",
       messages: [
         { role: "system", content: context || "You are RotationTV's uncensored AI." },
         { role: "user", content: message }
