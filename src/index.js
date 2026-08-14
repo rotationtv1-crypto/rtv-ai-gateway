@@ -23,7 +23,7 @@ export default {
         return json({ 
           status: "operational",
           service: "RotationTV AI Gateway",
-          version: "2.0.0",
+          version: "2.1.0",
           timestamp: new Date().toISOString(),
           endpoints: ["/ai/chat", "/ai/moderate", "/ai/ensemble", "/stream/create", "/stream/status", "/telegram/webhook"],
           models: {
