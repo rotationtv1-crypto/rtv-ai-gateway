@@ -24,9 +24,10 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response(JSON.stringify({
       status: "operational",
       service: "RTV Bot Gateway",
-      version: "2.0.0",
+      version: "2.1.1",
       bot: botKey,
       payments: "Telegram native only (Stars XTR, TON, USDT)",
+      entity: "Darrel-spell-living-trust",
       timestamp: new Date().toISOString()
     }, null, 2), { headers: corsHeaders });
   }
