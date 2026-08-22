@@ -3,7 +3,17 @@
 // Handles: /telegram?bot=livestream, /telegram?bot=erotica
 // Payment flow: sendInvoice (XTR) → pre_checkout_query → answerPreCheckoutQuery → successful_payment
 
-export default async function handler(req: Request): Promise<Response> {
+interface Env {
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_BOT_TOKEN_17?: string;
+  TELEGRAM_BOT_TOKEN_18?: string;
+  VENICE_API_KEY?: string;
+  GEMINI_API_KEY?: string;
+  ENVIRONMENT?: string;
+}
+
+export default {
+  async fetch(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
   
@@ -33,11 +43,11 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   try {
-    const update = await req.json();
+    const update = await req.json() as any;
     
     const botTokens: Record<string, string> = {
-      livestream: process.env.TELEGRAM_BOT_TOKEN_17 || process.env.TELEGRAM_BOT_TOKEN || "",
-      erotica: process.env.TELEGRAM_BOT_TOKEN_18 || ""
+      livestream: env.TELEGRAM_BOT_TOKEN_17 || env.TELEGRAM_BOT_TOKEN || "",
+      erotica: env.TELEGRAM_BOT_TOKEN_18 || ""
     };
 
     const token = botTokens[botKey];
@@ -162,10 +172,10 @@ export default async function handler(req: Request): Promise<Response> {
     } else if (text.startsWith("/ask ") || text.startsWith("/ai ")) {
       const query = text.startsWith("/ask ") ? text.slice(5) : text.slice(4);
       const useVenice = text.startsWith("/ask ");
-      reply = await callAI(query, useVenice, botKey);
+      reply = await callAI(query, useVenice, botKey, env);
     } else if (text) {
       // Default: AI chat
-      reply = await callAI(text, true, botKey);
+      reply = await callAI(text, true, botKey, env);
       if (!reply || reply.includes("not configured") || reply.includes("being configured")) {
         reply = "I'm here! Type /help to see what I can do. ⭐";
       }
@@ -182,7 +192,8 @@ export default async function handler(req: Request): Promise<Response> {
       status: 500, headers: corsHeaders 
     });
   }
-}
+  },
+};
 
 // === SEND STARS INVOICE ===
 async function sendStarsInvoice(token: string, chatId: number, invoice: {
@@ -205,7 +216,7 @@ async function sendStarsInvoice(token: string, chatId: number, invoice: {
     })
   });
   
-  const data = await result.json();
+  const data = await result.json() as { ok: boolean; description?: string };
   if (data.ok) {
     return new Response(JSON.stringify({ ok: true, invoice_sent: true }), { headers });
   } else {
@@ -289,13 +300,13 @@ async function sendTelegram(token: string, chatId: number, text: string, keyboar
 }
 
 // === AI CALLS ===
-async function callAI(message: string, useVenice: boolean, botKey: string): Promise<string> {
+async function callAI(message: string, useVenice: boolean, botKey: string, env: Env): Promise<string> {
   const persona = botKey === "erotica"
     ? "You are RotationTV Erotica's AI concierge. Be tasteful, elegant, and discreet. Keep replies under 200 words."
     : "You are RotationTV Live's AI assistant. Be energetic, concise, on-brand. Keep replies under 200 words. Motto: Learn it. Live it. Love it.";
 
   if (useVenice) {
-    const apiKey = process.env.VENICE_API_KEY;
+    const apiKey = env.VENICE_API_KEY;
     if (!apiKey) return "AI configuring... ⭐";
     try {
       const res = await fetch("https://api.venice.ai/api/v1/chat/completions", {
@@ -311,7 +322,7 @@ async function callAI(message: string, useVenice: boolean, botKey: string): Prom
       return data.choices?.[0]?.message?.content || "Try again! ⭐";
     } catch { return "Connection issue. Try again! ⭐"; }
   } else {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = env.GEMINI_API_KEY;
     if (!apiKey) return "AI configuring... ⭐";
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
