@@ -1,17 +1,18 @@
 {
   "name": "rtv-ai-gateway",
   "private": true,
-  "version": "6.2.0",
+  "version": "6.2.1",
   "type": "module",
   "scripts": {
     "test": "vitest run",
     "test:security": "vitest run tests/security.test.ts",
     "verify": "bash scripts/verify-rotation-erotica.sh",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "health": "curl -s http://127.0.0.1:8787/health || echo 'run wrangler dev first'"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250617.0",
+    "@cloudflare/workers-types": "^5.20260820.1",
     "typescript": "^5.8.0",
     "vitest": "^2.1.0",
     "wrangler": "^4.20.0"
