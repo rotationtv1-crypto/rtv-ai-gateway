@@ -24,3 +24,5 @@ jobs:
         run: npm ci
       - name: Run static security regression suite
         run: npx vitest run tests/static-security-patterns.test.ts
+      - name: Run standalone vulnerability pattern scanner
+        run: node scripts/security-pattern-scan.mjs
