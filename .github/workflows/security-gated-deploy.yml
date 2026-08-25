@@ -1,40 +1,75 @@
 name: Security Gated CI/CD
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   security-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
         with:
-          node-version: '20'
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
       - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit and security tests
+        run: npm test
       - name: Scan for exposed secrets
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: npm audit --audit-level=high || true
+      - name: Dependency audit
+        run: npm audit --audit-level=high
 
   deploy:
     needs: security-audit
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    environment: production
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
         with:
-          node-version: '20'
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
       - name: Install dependencies
+        run: npm ci
+      - name: Confirm Tribute processor is explicitly enabled before deploy
         run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install; fi
-      - name: Deploy AI Gateway Worker
-        run: npx wrangler deploy
+          node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("wrangler.jsonc","utf8")); if(c.vars?.TRIBUTE_WEBHOOK_PROCESSOR_ENABLED !== "true") { console.error("Deployment blocked: Tribute webhook processor is not enabled in source control."); process.exit(1); }'
+      - name: Verify required Cloudflare secret names exist
+        run: |
+          npx wrangler secret list --env production >/tmp/cf-secrets.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const secrets = JSON.parse(fs.readFileSync('/tmp/cf-secrets.json', 'utf8'));
+          const names = new Set((secrets.result || []).map((x) => x.name));
+          for (const name of ['TRIBUTE_WEBHOOK_SECRET']) {
+            if (!names.has(name)) {
+              console.error(`Missing Cloudflare Worker secret: ${name}`);
+              process.exit(1);
+            }
+          }
+          NODE
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Deploy Worker
+        run: npx wrangler deploy --env production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
