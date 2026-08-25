@@ -1,15 +1,32 @@
 {
   "name": "rtv-ai-gateway",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-08-22",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-25",
   "ai": {
     "binding": "AI"
   },
   "vars": {
-    "ENVIRONMENT": "production"
+    "ENVIRONMENT": "production",
+    "TRIBUTE_WEBHOOK_PROCESSOR_ENABLED": "false"
   },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
+  },
+  "env": {
+    "staging": {
+      "name": "rtv-ai-gateway-staging",
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "TRIBUTE_WEBHOOK_PROCESSOR_ENABLED": "false"
+      }
+    },
+    "production": {
+      "name": "rtv-ai-gateway",
+      "vars": {
+        "ENVIRONMENT": "production",
+        "TRIBUTE_WEBHOOK_PROCESSOR_ENABLED": "false"
+      }
+    }
   }
 }
