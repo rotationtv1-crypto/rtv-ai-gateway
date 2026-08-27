@@ -6,6 +6,7 @@
   "scripts": {
     "test": "vitest run",
     "test:security": "vitest run tests/security.test.ts",
+    "test:stream": "vitest run tests/stream.test.ts",
     "verify": "bash scripts/verify-rotation-erotica.sh",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",

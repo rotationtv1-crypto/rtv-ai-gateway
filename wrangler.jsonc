@@ -5,6 +5,9 @@
   "ai": {
     "binding": "AI"
   },
+  "stream": {
+    "binding": "STREAM"
+  },
   "vars": {
     "ENVIRONMENT": "production"
   },
