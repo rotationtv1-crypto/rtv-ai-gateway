@@ -15,7 +15,7 @@ jobs:
           node-version: '20'
       - name: Install dependencies
         run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          if [ -f package-lock.json ]; then npm ci --legacy-peer-deps; else npm install --legacy-peer-deps; fi
       - name: Scan for exposed secrets
         uses: gitleaks/gitleaks-action@v2
         env:
@@ -31,7 +31,7 @@ jobs:
           node-version: '20'
       - name: Install dependencies
         run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          if [ -f package-lock.json ]; then npm ci --legacy-peer-deps; else npm install --legacy-peer-deps; fi
       - name: Typecheck Worker
         run: npm run typecheck
       - name: Stream ingest/playback contract tests
@@ -48,7 +48,7 @@ jobs:
           node-version: '20'
       - name: Install dependencies
         run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          if [ -f package-lock.json ]; then npm ci --legacy-peer-deps; else npm install --legacy-peer-deps; fi
       - name: Deploy AI Gateway Worker
         run: npx wrangler deploy
         env:

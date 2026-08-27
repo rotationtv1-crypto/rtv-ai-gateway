@@ -1,12 +1,70 @@
 // RTV Bot Gateway v2.2.1 — Telegram Native Payments + Cloudflare Stream ingest/playback
 // ONLY accepts Telegram native payments: Stars (XTR), TON, USDT
-// Handles: /telegram?bot=livestream, /telegram?bot=erotica
+// Handles: /telegram/livestream, /telegram/erotica (path-routed; query bot= is not trusted)
 // Payment flow: sendInvoice (XTR) → pre_checkout_query → answerPreCheckoutQuery → successful_payment
 // AI providers: Venice | Gemini | Cloudflare Workers AI (edge fallback)
 // Streaming: POST /stream/create, GET /stream/status, GET /stream/playback/:uid (Cloudflare Stream)
 // ECS remains LiveKit/media only — not a public API.
 
 import { handleStream, isStreamPath } from "./stream";
+
+const ALLOWED_TIP_STARS: Record<string, number> = {
+  "5": 5,
+  "10": 10,
+  "50": 50,
+  "100": 100,
+  "250": 250,
+  "500": 500,
+};
+
+const EXACT_ORIGINS = new Set([
+  "https://rotationtv.network",
+  "https://www.rotationtv.network",
+  "https://app.rotationtv.network",
+  "https://t.me",
+]);
+
+function isAllowedOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    if (EXACT_ORIGINS.has(origin)) return true;
+    const host = url.hostname;
+    if (host === "localhost" || host === "127.0.0.1") return true;
+    return host.endsWith(".pages.dev") || host.endsWith(".workers.dev") || host.endsWith(".kimi.page");
+  } catch {
+    return false;
+  }
+}
+
+function corsHeadersFor(req: Request): Record<string, string> {
+  const origin = req.headers.get("Origin") || "";
+  return {
+    "Access-Control-Allow-Origin": origin && isAllowedOrigin(origin) ? origin : "https://rotationtv.network",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data",
+    "Content-Type": "application/json",
+  };
+}
+
+async function validateTelegramInitData(initData: string, botToken: string, maxAgeSec = 86400): Promise<boolean> {
+  const params = new URLSearchParams(initData);
+  const hash = params.get("hash");
+  if (!hash || !botToken) return false;
+  params.delete("hash");
+  const authDate = Number(params.get("auth_date") || 0);
+  if (!authDate || Math.abs(Date.now() / 1000 - authDate) > maxAgeSec) return false;
+  const dataCheckString = [...params.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("\n");
+  const encoder = new TextEncoder();
+  const webAppKey = await crypto.subtle.importKey("raw", encoder.encode("WebAppData"), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const secretBytes = await crypto.subtle.sign("HMAC", webAppKey, encoder.encode(botToken));
+  const secretKey = await crypto.subtle.importKey("raw", secretBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", secretKey, encoder.encode(dataCheckString));
+  const hex = [...new Uint8Array(signature)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hex === hash;
+}
 
 interface Env {
   AI?: any;
@@ -23,17 +81,11 @@ interface Env {
   ADMIN_SECRET?: string;
 }
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data",
-  "Content-Type": "application/json",
-};
-
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
+    const corsHeaders = corsHeadersFor(req);
 
     // Health endpoint — stops Cloudflare 522 origin timeouts
     if (req.method === "GET" && (path === "/health" || path === "/")) {
@@ -63,9 +115,32 @@ export default {
       return handleStream(req, env, corsHeaders);
     }
 
-    let botKey = "livestream";
-    if (path.includes("/erotica") || url.searchParams.get("bot") === "erotica") botKey = "erotica";
-    if (path.includes("/livestream") || url.searchParams.get("bot") === "livestream") botKey = "livestream";
+    let botKey: "livestream" | "erotica" = "livestream";
+    if (path.includes("/erotica")) botKey = "erotica";
+    else if (path.includes("/livestream")) botKey = "livestream";
+
+    const botTokens: Record<string, string> = {
+      livestream: env.TELEGRAM_BOT_TOKEN_17 || env.TELEGRAM_BOT_TOKEN || "",
+      erotica: env.TELEGRAM_BOT_TOKEN_18 || "",
+    };
+    const botToken = botTokens[botKey];
+
+    const initData = req.headers.get("X-Telegram-Init-Data");
+    if (initData) {
+      if (!botToken) {
+        return new Response(JSON.stringify({ error: `${botKey} token not configured` }), {
+          status: 503,
+          headers: corsHeaders,
+        });
+      }
+      const ok = await validateTelegramInitData(initData, botToken);
+      if (!ok) {
+        return new Response(JSON.stringify({ error: "invalid_telegram_initdata" }), {
+          status: 401,
+          headers: corsHeaders,
+        });
+      }
+    }
 
     if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -91,12 +166,7 @@ export default {
     try {
       const update = (await req.json()) as any;
 
-      const botTokens: Record<string, string> = {
-        livestream: env.TELEGRAM_BOT_TOKEN_17 || env.TELEGRAM_BOT_TOKEN || "",
-        erotica: env.TELEGRAM_BOT_TOKEN_18 || "",
-      };
-
-      const token = botTokens[botKey];
+      const token = botToken;
       if (!token) {
         return new Response(JSON.stringify({ error: `${botKey} token not configured` }), {
           status: 503,
@@ -172,14 +242,14 @@ export default {
         reply = gifts.text;
         keyboard = gifts.keyboard;
       } else if (text.startsWith("/tip")) {
-        const args = text.split(" ");
-        const starsAmount = parseInt(args[1]) || 50;
+        const requested = text.slice(4).trim();
+        const stars = ALLOWED_TIP_STARS[requested] ?? 50;
         return sendStarsInvoice(token, chatId, {
           title: "Tip to Creator",
-          description: `Send ${starsAmount} Stars to support this creator on RotationTV`,
-          payload: JSON.stringify({ type: "tip", stars: starsAmount, bot: botKey }),
-          stars: starsAmount,
-          label: `${starsAmount} Stars`,
+          description: `Send ${stars} Stars to support this creator on RotationTV`,
+          payload: JSON.stringify({ type: "tip", stars, bot: botKey }),
+          stars,
+          label: `${stars} Stars`,
         }, corsHeaders);
       } else if (text.startsWith("/subscribe")) {
         return sendStarsInvoice(token, chatId, {
