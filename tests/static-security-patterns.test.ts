@@ -32,3 +32,17 @@ describe("HTTP gateway security regression patterns", () => {
     }
   });
 });
+
+const pay = readFileSync(resolve(process.cwd(), "src/pay.ts"), "utf8");
+
+describe("web checkout security", () => {
+  it("does not take free-form amount_cents from the client", () => {
+    expect(pay).not.toMatch(/amount_cents\s*=\s*(body|json)/);
+    expect(pay).toMatch(/catalogBySku/);
+  });
+
+  it("verifies Stripe webhooks before ledger writes", () => {
+    expect(pay).toMatch(/verifyStripeSignature/);
+    expect(pay).toMatch(/invalid_signature/);
+  });
+});

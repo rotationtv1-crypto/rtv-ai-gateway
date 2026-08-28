@@ -1,12 +1,13 @@
-// RTV Bot Gateway v2.2.1 — Telegram Native Payments + Cloudflare Stream ingest/playback
-// ONLY accepts Telegram native payments: Stars (XTR), TON, USDT
-// Handles: /telegram/livestream, /telegram/erotica (path-routed; query bot= is not trusted)
-// Payment flow: sendInvoice (XTR) → pre_checkout_query → answerPreCheckoutQuery → successful_payment
-// AI providers: Venice | Gemini | Cloudflare Workers AI (edge fallback)
-// Streaming: POST /stream/create, GET /stream/status, GET /stream/playback/:uid (Cloudflare Stream)
+// RTV Bot Gateway v2.3.0 — Stream + Stripe/PayPal web checkout + Telegram bots
+// Web payments: Stripe Checkout + PayPal Checkout (Tribute retired — payout denied)
+// Telegram Stars remain bot-only. No Mini App. query bot= is not trusted.
+// Streaming: POST /stream/create, GET /stream/status, GET /stream/playback/:uid
+// Memory: KV/D1 via /memory/* — no local JSON dumps
 // ECS remains LiveKit/media only — not a public API.
 
 import { handleStream, isStreamPath } from "./stream";
+import { handlePay, isPayPath } from "./pay";
+import { handleMemory, isMemoryPath } from "./memory";
 
 const ALLOWED_TIP_STARS: Record<string, number> = {
   "5": 5,
@@ -30,7 +31,14 @@ function isAllowedOrigin(origin: string): boolean {
     if (EXACT_ORIGINS.has(origin)) return true;
     const host = url.hostname;
     if (host === "localhost" || host === "127.0.0.1") return true;
-    return host.endsWith(".pages.dev") || host.endsWith(".workers.dev") || host.endsWith(".kimi.page");
+    return (
+      host.endsWith(".pages.dev") ||
+      host.endsWith(".workers.dev") ||
+      host.endsWith(".kimi.page") ||
+      host.endsWith(".grok.me") ||
+      host.endsWith(".grok.com") ||
+      host === "grok.com"
+    );
   } catch {
     return false;
   }
@@ -79,6 +87,14 @@ interface Env {
   CF_STREAM_API_TOKEN?: string;
   CF_STREAM_CUSTOMER_SUBDOMAIN?: string;
   ADMIN_SECRET?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  PAYPAL_CLIENT_ID?: string;
+  PAYPAL_SECRET?: string;
+  PAYPAL_MODE?: string;
+  PAYPAL_PAYOUT_EMAIL?: string;
+  MEMORY?: KVNamespace;
+  DB?: D1Database;
 }
 
 export default {
@@ -93,9 +109,11 @@ export default {
         JSON.stringify({
           status: "healthy",
           service: "rtv-ai-gateway",
-          version: "2.2.1",
+          version: "2.3.0",
           timestamp: new Date().toISOString(),
-          payments: "Telegram native only (Stars XTR, TON, USDT)",
+          payments: "stripe-checkout + paypal-checkout (web); telegram stars bot-only; tribute retired",
+          mini_app: false,
+          persistence: env.MEMORY || env.DB ? "cloudflare-kv-d1" : "unconfigured",
           ai_providers: ["venice", "gemini", "workers-ai"],
           streaming: "cloudflare-stream",
           endpoints: [
@@ -103,6 +121,10 @@ export default {
             "/stream/create",
             "/stream/status",
             "/stream/playback/:uid",
+            "/pay/catalog",
+            "/pay/checkout",
+            "/pay/portal",
+            "/memory/event",
             "/telegram",
           ],
           entity: "Darrel-spell-living-trust",
@@ -113,6 +135,14 @@ export default {
 
     if (isStreamPath(path)) {
       return handleStream(req, env, corsHeaders);
+    }
+
+    if (isPayPath(path)) {
+      return handlePay(req, env, corsHeaders);
+    }
+
+    if (isMemoryPath(path)) {
+      return handleMemory(req, env, corsHeaders);
     }
 
     let botKey: "livestream" | "erotica" = "livestream";
@@ -229,12 +259,12 @@ export default {
           reply = `🎬 Welcome to RotationTV Live, ${userName}!\n\nYour AI streaming companion — powered by Telegram.\n\n/ask — Ask AI\n/stream — Go live\n/tip — Send Stars tip\n/subscribe — Subscribe to creators\n/wallet — Balance\n/store — Buy gifts\n/status — System status\n/help — All commands\n\n⚡ Payments: Telegram Stars only\nLearn it. Live it. Love it. 🔄`;
         }
       } else if (text === "/status") {
-        reply = `✅ RotationTV ${botKey === "erotica" ? "Erotica" : "Live"} — Status\n\n🤖 AI Gateway: Online (v2.2.1)\n📡 Streaming: Cloudflare Stream\n💰 Payments: Telegram Stars (XTR)\n⛓️ TON: Connected\n🧠 Workers AI: ${env.AI ? "bound" : "not bound"}\n\nAll systems operational.`;
+        reply = `RotationTV ${botKey === "erotica" ? "Erotica" : "Live"} — Status\n\nAI Gateway: Online (v2.3.0)\nStreaming: Cloudflare Stream\nWeb pay: Stripe + PayPal\nTribute: retired\nMini App: removed\nWorkers AI: ${env.AI ? "bound" : "not bound"}`;
       } else if (text === "/help") {
         reply = `📚 Commands\n\n/start — Welcome\n/status — System status\n/help — This message\n/ask — Ask Venice AI\n/ai — Ask Gemini AI\n/wallet — Your balance\n/store — Browse gifts (Stars)\n/tip — Send Stars tip\n/subscribe — Subscribe (Stars)\n/buy — Buy credits (Stars)`;
         if (botKey === "livestream") reply += "\n/stream — Go live (WebRTC)";
       } else if (text === "/stream" && botKey === "livestream") {
-        reply = "🔴 Go Live with RotationTV\n\n1. Open the Mini App\n2. Tap Go Live\n3. Stream via Cloudflare Stream (RTMPS or WHIP)\n4. Playback is a short-lived signed HLS URL from /stream/playback\n\nLiveKit/media stays on ECS. The public ingest API is this Worker.";
+        reply = "Go live from RotationTV Broadcast (web).\n1. Open the broadcast player\n2. Operator mints a live input in rtv-control\n3. OBS → RTMPS + stream key\n4. Playback is signed HLS from /stream/playback\n\nNo Telegram Mini App. LiveKit/media stays on ECS.";
       } else if (text === "/wallet") {
         reply = `⭐ Your Wallet\n\nStars Balance: 0 XTR\nTON Balance: 0 TON\nUSDT Balance: 0 USDT\n\n/buy — Add Stars\n/tip — Send tip to creator\n\n💡 1 Star ≈ $0.013 USD`;
       } else if (text === "/store" || text === "/gifts") {

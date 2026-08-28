@@ -9,7 +9,8 @@
     "binding": "STREAM"
   },
   "vars": {
-    "ENVIRONMENT": "production"
+    "ENVIRONMENT": "production",
+    "PAYPAL_MODE": "sandbox"
   },
   "observability": {
     "enabled": true,
