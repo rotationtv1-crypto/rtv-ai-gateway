@@ -126,7 +126,7 @@ export default {
           return new Response(aiResponse.body, {
             headers: {
               ...corsHeaders,
-              'Content-Type': 'text-event-stream',
+              'Content-Type': 'text/event-stream',
               'Cache-Control': 'no-cache',
             },
           });
