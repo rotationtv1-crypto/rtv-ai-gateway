@@ -1,16 +1,19 @@
 /**
  * rtv-ai-gateway Worker
- * 
+ *
  * Unified AI bridge routing requests through Cloudflare AI Gateway.
- * Supports multiple model providers with intelligent fallback.
- * 
+ * Also serves GET /v1/epg for rtv-broadcast (same worker, no second router).
+ *
  * Routes:
  *   POST /v1/chat/completions — Chat completion (routed via AI Gateway)
  *   POST /v1/generate         — Content generation
  *   GET  /v1/health           — Gateway health check
+ *   GET  /v1/epg              — Channel guide + hourly schedule
  */
 
-interface Env {
+import { getEpgGuide, type EpgEnv } from './epg';
+
+interface Env extends EpgEnv {
   CLOUDFLARE_API_TOKEN: string;
   KIMI_API_KEY: string;
   ADMIN_SECRET: string;
@@ -27,6 +30,8 @@ interface ChatRequest {
   temperature?: number;
 }
 
+const PUBLIC_PATHS = new Set(['/v1/health', '/v1/epg']);
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -42,8 +47,7 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    // Auth check for non-health endpoints
-    if (path !== '/v1/health') {
+    if (!PUBLIC_PATHS.has(path)) {
       const authHeader = request.headers.get('Authorization');
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
@@ -51,22 +55,30 @@ export default {
     }
 
     try {
-      // Health check
       if (path === '/v1/health') {
         return Response.json({
           status: 'operational',
           gateway: `${env.AI_GATEWAY_BASE}/${env.ACCOUNT_ID}/${env.GATEWAY_NAME}`,
           models: ['workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast', 'kimi'],
+          epg: true,
           timestamp: new Date().toISOString(),
         }, { headers: corsHeaders });
       }
 
-      // Chat completions
+      if (path === '/v1/epg' && request.method === 'GET') {
+        const guide = await getEpgGuide(env);
+        return Response.json(guide, {
+          headers: {
+            ...corsHeaders,
+            'Cache-Control': 'public, max-age=60',
+          },
+        });
+      }
+
       if (path === '/v1/chat/completions' && request.method === 'POST') {
         const body: ChatRequest = await request.json();
         const model = body.model || 'workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
-        // Route through Cloudflare AI Gateway
         const gatewayUrl = `${env.AI_GATEWAY_BASE}/${env.ACCOUNT_ID}/${env.GATEWAY_NAME}`;
 
         let targetUrl: string;
@@ -124,10 +136,9 @@ export default {
         return Response.json(result, { headers: corsHeaders });
       }
 
-      // Generate endpoint
       if (path === '/v1/generate' && request.method === 'POST') {
         const body = await request.json() as { prompt: string; type?: string };
-        
+
         const gatewayUrl = `${env.AI_GATEWAY_BASE}/${env.ACCOUNT_ID}/${env.GATEWAY_NAME}`;
         const targetUrl = `${gatewayUrl}/workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast`;
 
@@ -151,7 +162,7 @@ export default {
       }
 
       return Response.json(
-        { error: 'Not found', routes: ['POST /v1/chat/completions', 'POST /v1/generate', 'GET /v1/health'] },
+        { error: 'Not found', routes: ['POST /v1/chat/completions', 'POST /v1/generate', 'GET /v1/health', 'GET /v1/epg'] },
         { status: 404, headers: corsHeaders }
       );
     } catch (err) {

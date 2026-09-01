@@ -18,3 +18,12 @@ ENVIRONMENT = "production"
 ACCOUNT_ID = ""
 GATEWAY_NAME = "default"
 AI_GATEWAY_BASE = "https://gateway.ai.cloudflare.com/v1"
+# Optional Stream HLS for EPG (or set STREAM_UID_NN + STREAM_CUSTOMER):
+# STREAM_HLS_DEFAULT = ""
+# STREAM_CUSTOMER = "customer-xxxxxxxx"
+
+# Optional EPG cache. Create then uncomment with a real id:
+#   npx wrangler kv namespace create EPG_CACHE
+# [[kv_namespaces]]
+# binding = "EPG_CACHE"
+# id = "<kv-namespace-id>"
